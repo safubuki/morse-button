@@ -30,7 +30,8 @@
             border: none;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
             cursor: pointer;
-            transition: background-color 0.2s, transform 0.1s;
+            /* transform の transition を短い時間で追加 */
+            transition: background-color 0.2s, transform 0.05s;
             display: flex;
             justify-content: center;
             align-items: center;
@@ -45,7 +46,8 @@
         }
         #morseButton:active {
             background-color: #dc2626;
-            transform: scale(0.95);
+            /* わずかに縮小するアニメーションを再追加 */
+            transform: scale(0.98);
         }
         /* ボタンが無効な時のスタイル */
         #morseButton:disabled {
@@ -133,6 +135,7 @@
 
         // --- Functions ---
         function showStatus(message, duration = 2000) {
+            // (変更なし)
             statusMessage.textContent = message;
             statusMessage.classList.add('visible');
             if (statusMessage.timerId) {
@@ -145,6 +148,7 @@
         }
 
         async function initializeAudio() {
+            // (変更なし - release: 0.05 のまま)
             if (audioInitialized) return true;
             try {
                 await Tone.start();
@@ -154,12 +158,20 @@
                     console.log('Filter initialized');
                 }
                 if (!synth) {
-                    synth = new Tone.Synth({ oscillator: { type: 'sine' }, envelope: { attack: 0.005, decay: 0.01, sustain: 0.9, release: 0.1 } }).connect(filter);
-                    console.log('Synth initialized');
+                    synth = new Tone.Synth({
+                        oscillator: { type: 'sine' },
+                        envelope: {
+                            attack: 0.005,
+                            decay: 0.01,
+                            sustain: 0.9,
+                            release: 0.05
+                        }
+                    }).connect(filter);
+                    console.log('Synth initialized with release = 0.05');
                 }
                 audioInitialized = true;
                 morseButton.disabled = false;
-                buttonTextSpan.textContent = '押して発信'; // 有効化後のテキスト
+                buttonTextSpan.textContent = '押して発信';
                 showStatus('オーディオ準備完了！', 1500);
                 startVisualizerLoop();
                 return true;
@@ -171,6 +183,7 @@
         }
 
         function startSound() {
+            // (変更なし)
             if (!audioInitialized || !synth || isSounding) return;
             try {
                 console.log("Triggering attack");
@@ -183,6 +196,7 @@
         }
 
         function stopSound() {
+             // (変更なし)
              if (!audioInitialized || !synth || !isSounding) return;
             try {
                 console.log("Triggering release");
@@ -247,8 +261,8 @@
         }
 
         // --- Event Listeners ---
+        // (変更なし)
         morseButton.addEventListener('pointerdown', async (e) => {
-            // (変更なし)
             if (e.button !== 0 && e.pointerType === 'mouse') return;
             e.preventDefault();
             if (!audioInitialized) {
@@ -259,14 +273,12 @@
         });
 
         morseButton.addEventListener('pointerup', (e) => {
-            // (変更なし)
             if (e.button !== 0 && e.pointerType === 'mouse') return;
             e.preventDefault();
             stopSound();
         });
 
         morseButton.addEventListener('pointerleave', (e) => {
-            // (変更なし)
             if (e.pointerType === 'mouse' && isSounding) {
                 console.log("Pointer left while sounding, stopping sound.");
                 stopSound();
@@ -274,7 +286,6 @@
         });
 
         morseButton.addEventListener('pointercancel', (e) => {
-            // (変更なし)
             if (isSounding) {
                 console.log("Pointer cancel event, stopping sound.");
                 stopSound();
