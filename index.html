@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>モールス信号発信アプリ</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.8.49/Tone.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', 'Helvetica Neue', Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #f3f4f6;
+            padding: 1rem;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+        }
+        #morseButton {
+            width: 150px;
+            height: 150px;
+            border-radius: 50%;
+            background-color: #ef4444;
+            border: none;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            cursor: pointer;
+            transition: background-color 0.2s, transform 0.1s;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-size: 1.1rem;
+            font-weight: bold;
+            user-select: none;
+            -webkit-user-select: none;
+            -ms-user-select: none;
+            touch-action: manipulation;
+            margin-bottom: 1.5rem;
+        }
+        #morseButton:active {
+            background-color: #dc2626;
+            transform: scale(0.95);
+        }
+        /* ボタンが無効な時のスタイル */
+        #morseButton:disabled {
+            background-color: #fca5a5;
+            cursor: not-allowed;
+            opacity: 0.7;
+        }
+        #statusMessage {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            z-index: 10;
+            opacity: 0;
+            transition: opacity 0.5s ease-in-out;
+            pointer-events: none;
+        }
+        #statusMessage.visible {
+            opacity: 1;
+        }
+        #visualizerCanvas {
+            width: 300px;
+            height: 50px;
+            background-color: #e5e7eb; /* 背景色 (薄いグレー) */
+            border-radius: 4px;
+            margin-top: 1rem;
+            margin-bottom: 1rem;
+            display: block;
+            image-rendering: pixelated; /* シャープな描画 */
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <p class="text-2xl font-semibold text-gray-700 mb-4">モールス信号発信アプリ</p>
+        <h1 class="text-lg text-gray-600 mb-4">発信ボタン</h1>
+        <button id="morseButton" disabled>
+            <span>クリックして<br>アプリ開始</span>
+        </button>
+        <canvas id="visualizerCanvas" width="300" height="50"></canvas>
+        <p class="text-sm text-gray-500">ボタンを押している間、音が鳴り線が流れます。</p>
+    </div>
+    <div id="statusMessage"></div>
+
+    <script>
+        // --- Configuration ---
+        const FREQUENCY = 600;
+        const FILTER_Q = 3.5;
+        const PIXELS_PER_SECOND = 75;
+        const LINE_COLOR = '#000000';
+        const BACKGROUND_COLOR = '#e5e7eb';
+
+        // --- DOM Elements ---
+        const morseButton = document.getElementById('morseButton');
+        const statusMessage = document.getElementById('statusMessage');
+        const buttonTextSpan = morseButton.querySelector('span');
+        const canvas = document.getElementById('visualizerCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // --- Disable Image Smoothing ---
+        if (ctx) {
+            ctx.imageSmoothingEnabled = false;
+            ctx.mozImageSmoothingEnabled = false;
+            ctx.webkitImageSmoothingEnabled = false;
+            ctx.msImageSmoothingEnabled = false;
+            console.log("Image smoothing disabled on canvas context.");
+        } else {
+            console.error("Failed to get canvas context.");
+        }
+
+        // --- Audio Variables ---
+        let synth = null;
+        let filter = null;
+        let audioInitialized = false;
+        let isSounding = false;
+
+        // --- Animation Variables ---
+        let animationFrameId = null;
+        let lastTimestamp = 0;
+
+        // --- Functions ---
+        function showStatus(message, duration = 2000) {
+            statusMessage.textContent = message;
+            statusMessage.classList.add('visible');
+            if (statusMessage.timerId) {
+                clearTimeout(statusMessage.timerId);
+            }
+            statusMessage.timerId = setTimeout(() => {
+                statusMessage.classList.remove('visible');
+                statusMessage.timerId = null;
+            }, duration);
+        }
+
+        async function initializeAudio() {
+            if (audioInitialized) return true;
+            try {
+                await Tone.start();
+                console.log('AudioContext started');
+                if (!filter) {
+                    filter = new Tone.Filter({ type: 'bandpass', frequency: FREQUENCY, Q: FILTER_Q }).toDestination();
+                    console.log('Filter initialized');
+                }
+                if (!synth) {
+                    synth = new Tone.Synth({ oscillator: { type: 'sine' }, envelope: { attack: 0.005, decay: 0.01, sustain: 0.9, release: 0.1 } }).connect(filter);
+                    console.log('Synth initialized');
+                }
+                audioInitialized = true;
+                morseButton.disabled = false;
+                buttonTextSpan.textContent = '押して発信'; // 有効化後のテキスト
+                showStatus('オーディオ準備完了！', 1500);
+                startVisualizerLoop();
+                return true;
+            } catch (error) {
+                console.error("Audio initialization failed:", error);
+                showStatus('オーディオの初期化に失敗しました。', 3000);
+                return false;
+            }
+        }
+
+        function startSound() {
+            if (!audioInitialized || !synth || isSounding) return;
+            try {
+                console.log("Triggering attack");
+                synth.triggerAttack(FREQUENCY, Tone.now());
+                isSounding = true;
+            } catch (error) {
+                console.error("Error triggering attack:", error);
+                showStatus('音の開始に失敗しました。', 2000);
+            }
+        }
+
+        function stopSound() {
+             if (!audioInitialized || !synth || !isSounding) return;
+            try {
+                console.log("Triggering release");
+                synth.triggerRelease(Tone.now());
+                isSounding = false;
+            } catch (error) {
+                console.error("Error triggering release:", error);
+            }
+        }
+
+        function visualizerLoop(timestamp) {
+            // (変更なし)
+            if (!ctx) return;
+
+            if (lastTimestamp === 0) {
+                lastTimestamp = timestamp;
+            }
+            const deltaTime = timestamp - lastTimestamp;
+            lastTimestamp = timestamp;
+
+            if (deltaTime <= 0 || deltaTime > 100) {
+                 animationFrameId = requestAnimationFrame(visualizerLoop);
+                 return;
+            }
+
+            const scrollAmount = PIXELS_PER_SECOND * (deltaTime / 1000);
+
+            ctx.drawImage(canvas, -scrollAmount, 0);
+
+            const rectX = canvas.width - scrollAmount;
+            const rectW = scrollAmount;
+
+            if (isSounding) {
+                ctx.fillStyle = LINE_COLOR;
+                const rectH = canvas.height * 0.3;
+                const rectY = (canvas.height - rectH) / 2;
+                ctx.fillRect(rectX, rectY, rectW, rectH);
+            } else {
+                ctx.fillStyle = BACKGROUND_COLOR;
+                ctx.fillRect(rectX, 0, rectW, canvas.height);
+            }
+
+            animationFrameId = requestAnimationFrame(visualizerLoop);
+        }
+
+        function startVisualizerLoop() {
+            // (変更なし)
+            if (!animationFrameId) {
+                console.log("Starting visualizer loop");
+                lastTimestamp = 0;
+                animationFrameId = requestAnimationFrame(visualizerLoop);
+            }
+        }
+
+        function stopVisualizerLoop() {
+            // (変更なし)
+            if (animationFrameId) {
+                console.log("Stopping visualizer loop");
+                cancelAnimationFrame(animationFrameId);
+                animationFrameId = null;
+            }
+        }
+
+        // --- Event Listeners ---
+        morseButton.addEventListener('pointerdown', async (e) => {
+            // (変更なし)
+            if (e.button !== 0 && e.pointerType === 'mouse') return;
+            e.preventDefault();
+            if (!audioInitialized) {
+                await initializeAudio();
+            } else {
+                 startSound();
+            }
+        });
+
+        morseButton.addEventListener('pointerup', (e) => {
+            // (変更なし)
+            if (e.button !== 0 && e.pointerType === 'mouse') return;
+            e.preventDefault();
+            stopSound();
+        });
+
+        morseButton.addEventListener('pointerleave', (e) => {
+            // (変更なし)
+            if (e.pointerType === 'mouse' && isSounding) {
+                console.log("Pointer left while sounding, stopping sound.");
+                stopSound();
+            }
+        });
+
+        morseButton.addEventListener('pointercancel', (e) => {
+            // (変更なし)
+            if (isSounding) {
+                console.log("Pointer cancel event, stopping sound.");
+                stopSound();
+            }
+        });
+
+        // --- Initialization ---
+        document.addEventListener('DOMContentLoaded', () => {
+            // (変更なし)
+            console.log("DOM loaded. Button is initially disabled.");
+        });
+
+    </script>
+</body>
+</html>
